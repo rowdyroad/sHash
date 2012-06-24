@@ -10,12 +10,26 @@ extern "C" {
 }
 #include "config.h"
 namespace NHasher {
-    namespace NSource
-    {
-        typedef boost::function<void(int fd)> Handler;
 
-        void FromArecord(const std::string& filename, const Config& config, Handler handler)
-        {
+    template<class T>
+    class Arecord
+    {
+        public:
+        typedef boost::function<T (int fd)> Handler;
+        Arecord(const std::string& filename, 
+                const std::string& device, 
+                const Config& config,
+                Handler handler);
+        private:
+            T main_;
+    };
+
+    template<class T>
+    Arecord<T>::Arecord(const std::string& filename, 
+                         const std::string& device, 
+                         const Config& config,
+                         Handler handler)
+    {
             ::mkfifo(filename.c_str(), 0666);
             int status;
             int outfd[2];
@@ -39,9 +53,11 @@ namespace NHasher {
                 close(infd[1]);
                 std::string format = (config.GetBits() == Config::k8) ? "U8" : "S16_LE";
                 if (execl("/usr/bin/arecord", "arecord",
+                                "-D", device.c_str(),
                                 "-c", boost::lexical_cast<std::string>(config.GetChannels()).c_str(),
                                 "-r", boost::lexical_cast<std::string>(config.GetSampleRate()).c_str(),
                                 "-f", format.c_str(),
+                                "-q",
                                 "-t", "raw", NULL) == -1) {
                                 perror("error");
                 }
@@ -52,9 +68,8 @@ namespace NHasher {
                 dup2(oldstdout, 1);
                 close(outfd[0]);
                 close(infd[1]);
-                handler(infd[0]);
+                main_ = handler(infd[0]);
                 ::wait(&status);
             }
-        }
     }
 }

@@ -43,12 +43,19 @@ namespace NHasher {
             {
                 return chunk_length_;
             }
-
+            
             Config(Channels channels, Bits bits, SampleRate sample_rate, size_t chunk_length)
                 : channels_(channels)
                 , bits_(bits)
                 , sample_rate_(sample_rate)
                 , chunk_length_(chunk_length)
+            {}
+            
+            Config()
+                : channels_(kMono)
+                , bits_(k8)
+                , sample_rate_(k8Khz)
+                , chunk_length_(1)    
             {}
 
         private:
@@ -56,5 +63,5 @@ namespace NHasher {
             Bits bits_;
             SampleRate sample_rate_;
             size_t chunk_length_;
-    };
+    } __attribute__((packed));
 }

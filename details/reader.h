@@ -4,17 +4,17 @@
 #include "common.h"
 
 namespace NHasher {
-    template<class T>
-    class Main
+    class Reader
     {
+        typedef NCommon::Module<uint8_t>::Ptr Processor;
         public:
-            Main(int source, const Config& config, boost::shared_ptr<T>& processor);
+            Reader(int source, const Config& config, const Processor& processor);
 
         private:
             std::unique_ptr<boost::thread> reader_;
             std::unique_ptr<boost::thread> process_;
             Config config_;
-            boost::shared_ptr<T>& processor_;
+            Processor processor_;
             volatile bool break_;
             typedef std::vector<uint8_t> Buffer;
             Buffer buf_;
@@ -29,20 +29,18 @@ namespace NHasher {
             void modifyCurrent(uint8_t* data, size_t len, bool create = false);
     };
 
-    template<class T>
-    Main<T>::Main(int source, const Config& config, boost::shared_ptr<T>& processor)
+    Reader::Reader(int source, const Config& config, const Processor& processor)
         : config_(config)
         , processor_(processor)
         , break_(false)
         , buf_(config_.GetChunkLength() * config_.GetChannels() * config_.GetSampleRate() * config_.GetBits() / 8)
         , current_pos_(0)
     {
-        reader_.reset(new boost::thread(boost::bind(&Main::reading, this, source)));
-        process_.reset(new boost::thread(boost::bind(&Main::processing, this)));
+        reader_.reset(new boost::thread(boost::bind(&Reader::reading, this, source)));
+        process_.reset(new boost::thread(boost::bind(&Reader::processing, this)));
     }
 
-    template<class T>
-    void Main<T>::modifyCurrent(uint8_t* data, size_t len, bool create)
+    void Reader::modifyCurrent(uint8_t* data, size_t len, bool create)
     {
         if (!current_all_ || create) {
             current_all_.reset(new Buffer(buf_.size()));
@@ -56,8 +54,7 @@ namespace NHasher {
         }
     }
 
-    template<class T>
-    void Main<T>::reading(int fd)
+    void Reader::reading(int fd)
     {
         while (true) {
             int len = ::read(fd, &buf_[0], buf_.size());
@@ -70,7 +67,6 @@ namespace NHasher {
 
             if (current_pos_ == current_all_->size()) {
                 {
-                    printf("Add chunk\n");
                     NCommon::Guard guard(mutex_);
                     all_.push(current_all_);
                 }
@@ -82,22 +78,19 @@ namespace NHasher {
         event_.SignalBroadcast();
     }
 
-    template<class T>
-    void Main<T>::processing()
+    void Reader::processing()
     {
         while (!break_) {
             event_.Wait();
-            printf("Waited: %d\n", all_.size());
+            printf("Waited: %lu\n", all_.size());
             while (all_.size()) {
                 PBuffer pbuf;
                 {
                     NCommon::Guard guard(mutex_);
                     pbuf = all_.top();
                     all_.pop();
-                    printf("Poped\n");
                 }
                 Buffer& buf = *pbuf;
-                printf("Push %p %d\n", &buf[0], buf.size());
                 processor_->Push(&buf[0], buf.size());
             }
         }

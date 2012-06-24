@@ -7,10 +7,11 @@
 
 namespace NHasher {
 namespace NCommon {
-    template<typename T>
-    boost::shared_ptr<T> Create(T* inst)
+ 
+    template<typename T, typename ... TArgs>
+    boost::shared_ptr<T> Create(TArgs && ... args)
     {
-        return boost::shared_ptr<T>(inst);
+        return boost::shared_ptr<T>(new T(std::forward<TArgs>(args) ...));
     }
 
     class Event
@@ -34,7 +35,15 @@ namespace NCommon {
             boost::interprocess::interprocess_mutex mutex_;
             boost::condition event_;
     };
-
+    
+    template<typename T>
+    class Module
+    {
+        public:
+            typedef boost::shared_ptr<Module<T>> Ptr;
+            virtual void Push(const T* data, size_t len) = 0;
+    };
+    
     typedef boost::interprocess::interprocess_mutex Mutex;
     typedef boost::interprocess::scoped_lock<Mutex> Guard;
 
