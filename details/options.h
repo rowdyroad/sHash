@@ -29,15 +29,7 @@ class Options
            std::cout << desc_ << "\n";
            exit(1);
         }
-        
-       template<typename T>
-       Options& Add(const std::string& name, T def, const std::string& desc)
-       {
-            const po::value_semantic* v = po::value<T>()->default_value(def);
-            (*opts_)(name.c_str(), v, desc.c_str());
-            return *this;
-       }
-       
+  
        template<typename T>
        Options& Add(const std::string& name, const std::string& desc)
        {

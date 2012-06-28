@@ -118,7 +118,7 @@ namespace NHasher {
         printf("%d\n", gh.version_header.frames); 
         
         len = ::read(fd, &stamp->data[0], stamp->data.size());
-        if (len < stamp->data.size()) {
+        if (static_cast<size_t>(len) < stamp->data.size()) {
             printf("incorrect file length\n");
             return;
         }        
