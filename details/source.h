@@ -9,6 +9,7 @@ extern "C" {
 #include <sys/wait.h>
 }
 #include "config.h"
+
 namespace NHasher {
 
     template<class T>

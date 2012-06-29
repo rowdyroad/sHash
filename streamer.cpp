@@ -8,6 +8,7 @@
 #include "details/dumper.h"
 #include "details/floater.h"
 #include "details/comparer.h"
+#include "details/wave.h"
 
 using namespace NHasher;
 
@@ -23,35 +24,43 @@ void Start(const std::string& filename, const std::string& device, const Config&
 int main(int argc, char** argv)
 {
 
-    std::string device;
+    std::string device,input;
     size_t sample_rate,
            bits,
            channels,
            step;
-    Options opts("SHasher v.0.1", argc, argv,[&device, &sample_rate, &bits, &channels, &step](Options* opts) {
+
+    Options opts("SHasher v.0.1", argc, argv,[&device, &sample_rate, &bits, &channels, &step, &input](Options* opts) {
         (*opts)
             .Add<std::string>("device,d", device, "default", "arecord pcm device")
             .Add<size_t>("samplerate,s", sample_rate, Config::k8Khz,"samples rate")
             .Add<size_t>("channels,c", channels, Config::kMono, "channels")
             .Add<size_t>("format,f", bits, Config::k8, "bits per sample")
-            .Add<size_t>("step,S", step, 1, "bits per sample");
+            .Add<size_t>("step,S", step, 1, "bits per sample")
+            .Add<std::string>("input,i", input, "", "input wav file");
     });
-    
-    Config config((Config::Channels)channels, (Config::Bits)bits, (Config::SampleRate)sample_rate, 10);
-    auto last = NCommon::Create<Comparer>(config, "dump");
-    
-    auto hasher = NCommon::Create<Hasher>(config, last);
-    
-    NCommon::Module<uint8_t>::Ptr first;
-    
-    if (config.GetChannels() == Config::kStereo) {
-        first = NCommon::Create<Splitter>(config, hasher, hasher);
+
+    if (input.empty()) {
+        Config config((Config::Channels)channels, (Config::Bits)bits, (Config::SampleRate)sample_rate,step);
+        auto last = NCommon::Create<Comparer>(config, "dump");
+        auto hasher = NCommon::Create<Hasher>(config, last);
+
+        NCommon::Module<uint8_t>::Ptr first;
+
+        if (config.GetChannels() == Config::kStereo) {
+            first = NCommon::Create<Splitter>(config, hasher, hasher);
+        } else {
+            first = NCommon::Create<Floater>(config, hasher);
+        }
+        Start<Reader>("/tmp/test","default", config, first);
     } else {
-        first = NCommon::Create<Floater>(config, hasher);
+        Wave<boost::shared_ptr<Floater>> wave(input, [](const Config& config) {
+            auto last = NCommon::Create<Comparer>(config, "dump");
+            auto hasher = NCommon::Create<Hasher>(config, last);
+            return NCommon::Create<Floater>(config, hasher);
+        });
     }
-    
-    Start<Reader>("/tmp/test","default", config, first);
-    
+
 
     return 0;
 };

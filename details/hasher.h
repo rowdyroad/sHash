@@ -15,16 +15,16 @@ namespace NHasher {
             Processor processor_;
             uint32_t max_;
     };
-        
+
     Hasher::Hasher(const Config& config, const Processor& processor)
         : config_(config)
         , processor_(processor)
     {}
 
-    
+
     void Hasher::Push(const float* data, size_t len)
     {
-        printf("Received:%lu\n",len);
+        printf("Hasher: %lu\n", len);
         int nbFrames = 0;
         uint32_t* hash = ph_audiohash(const_cast<float*>(data), static_cast<int>(len), config_.GetSampleRate(), nbFrames);
         if (hash) {

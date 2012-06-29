@@ -1,7 +1,12 @@
 #pragma once
 #include <boost/thread.hpp>
 #include <stack>
+extern "C" {
+#include <sys/epoll.h>
+#include <sys/ioctl.h>
+}
 #include "common.h"
+#include "exceptions.h"
 
 namespace NHasher {
     class Reader
@@ -17,11 +22,11 @@ namespace NHasher {
             Processor processor_;
             volatile bool break_;
             typedef std::vector<uint8_t> Buffer;
-            Buffer buf_;
             typedef boost::shared_ptr<Buffer> PBuffer;
-            std::stack<PBuffer> all_;
-            PBuffer current_all_;
-            size_t current_pos_;
+            const size_t size_;
+            volatile size_t pos_;
+            PBuffer buf_;
+            std::stack<PBuffer> queue_;
             NCommon::Mutex mutex_;
             NCommon::Event event_;
             void reading(int fd);
@@ -33,45 +38,52 @@ namespace NHasher {
         : config_(config)
         , processor_(processor)
         , break_(false)
-        , buf_(config_.GetChunkLength() * config_.GetChannels() * config_.GetSampleRate() * config_.GetBits() / 8)
-        , current_pos_(0)
+        , size_(config_.GetChunkLength() * config_.GetChannels() * config_.GetSampleRate() * config_.GetBits() / 8)
+        , pos_(0)
+        , buf_(new Buffer(size_))
     {
         reader_.reset(new boost::thread(boost::bind(&Reader::reading, this, source)));
         process_.reset(new boost::thread(boost::bind(&Reader::processing, this)));
     }
 
-    void Reader::modifyCurrent(uint8_t* data, size_t len, bool create)
-    {
-        if (!current_all_ || create) {
-            current_all_.reset(new Buffer(buf_.size()));
-            current_pos_ = 0;
-        }
-        if (len) {
-            assert(current_pos_ + len <= current_all_->size());
-            Buffer& current = *current_all_.get();
-            ::memcpy(&current[current_pos_], data, len);
-            current_pos_ += len;
-        }
-    }
-
     void Reader::reading(int fd)
     {
+        int ep = ::epoll_create(10);
+        if (ep == -1) {
+            throw NException::Error("Epoll create error");
+        }
+
+        struct epoll_event ev, events[10];
+        ev.events = EPOLLIN;
+        ev.data.fd = fd;
+        if (epoll_ctl(ep, EPOLL_CTL_ADD, fd, &ev) == -1) {
+            throw NException::Error("Epoll event add error");
+        }
+
         while (true) {
-            int len = ::read(fd, &buf_[0], buf_.size());
-            if (len <=0 && errno != EAGAIN) {
+            int ret = ::epoll_wait(ep, events, 10, -1);
+            if (ret == -1) {
                 break;
             }
 
-            size_t ltw = std::min(buf_.size() - current_pos_, static_cast<size_t>(len));
-            modifyCurrent(&buf_[0], ltw);
+            for (int i = 0; i < ret; ++i) {
+                if (events[i].data.fd == fd) {
+                    int bytes = 0;
+                    if (::ioctl(fd, FIONREAD, &bytes) == -1) {
+                        throw NException::Error("Get filesize error");
+                    }
 
-            if (current_pos_ == current_all_->size()) {
-                {
-                    NCommon::Guard guard(mutex_);
-                    all_.push(current_all_);
+                    if (static_cast<size_t>(bytes) >= size_) {
+                        Buffer& buf = *buf_;
+                        ::read(fd, &buf[0], size_);
+                        {
+                            NCommon::Guard g(mutex_);
+                            queue_.push(buf_);
+                        }
+                        buf_.reset(new Buffer(size_));
+                        event_.Signal();
+                    }
                 }
-                event_.Signal();
-                modifyCurrent(&buf_[ltw], len - ltw, true);
             }
         }
         break_ = true;
@@ -82,16 +94,13 @@ namespace NHasher {
     {
         while (!break_) {
             event_.Wait();
-            printf("Waited: %lu\n", all_.size());
-            while (all_.size()) {
-                PBuffer pbuf;
+            while (!queue_.empty()) {
+                Buffer& buf = *queue_.top();
+                processor_->Push(&buf[0], size_);
                 {
-                    NCommon::Guard guard(mutex_);
-                    pbuf = all_.top();
-                    all_.pop();
+                    NCommon::Guard g(mutex_);
+                    queue_.pop();
                 }
-                Buffer& buf = *pbuf;
-                processor_->Push(&buf[0], buf.size());
             }
         }
     }
